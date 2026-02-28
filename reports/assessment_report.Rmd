@@ -1,0 +1,124 @@
+---
+title: "NER Classification Assessment Report"
+author: "Automated MLOps Pipeline"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    code_folding: hide
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(knitr)
+library(DT)
+library(plotly)
+```
+
+## Executive Summary
+
+This report assesses the performance of the adaptive NER classification system.
+```{r load_data}
+# Load classified results
+results <- read_csv("../data/processed/classified_transactions.csv")
+
+# Summary stats
+total_transactions <- nrow(results)
+coverage_rate <- mean(results$category != "Unknown")
+avg_confidence <- mean(results$confidence)
+```
+
+- **Total Transactions**: `r total_transactions`
+- **Coverage Rate**: `r round(coverage_rate * 100, 2)`%
+- **Average Confidence**: `r round(avg_confidence, 3)`
+
+## Category Distribution
+```{r category_dist}
+category_summary <- results %>%
+  group_by(category) %>%
+  summarise(
+    count = n(),
+    total_amount = sum(abs(amount)),
+    avg_confidence = mean(confidence),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(total_amount))
+
+kable(category_summary, caption = "Category Distribution")
+```
+```{r category_plot}
+p <- plot_ly(category_summary,
+             labels = ~category,
+             values = ~count,
+             type = 'pie',
+             textposition = 'inside',
+             textinfo = 'label+percent') %>%
+  layout(title = "Transaction Distribution by Category")
+
+p
+```
+
+## Classification Method Performance
+```{r method_performance}
+method_perf <- results %>%
+  group_by(method) %>%
+  summarise(
+    count = n(),
+    avg_confidence = mean(confidence),
+    unknown_rate = mean(category == "Unknown"),
+    .groups = "drop"
+  )
+
+kable(method_perf, caption = "Performance by Classification Method")
+```
+
+## Amount-Weighted Analysis
+```{r amount_weighted}
+weighted_analysis <- results %>%
+  mutate(weight = abs(amount) / sum(abs(amount))) %>%
+  group_by(category) %>%
+  summarise(
+    weighted_coverage = sum(weight),
+    transactions = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(weighted_coverage))
+
+ggplot(weighted_analysis, aes(x = reorder(category, weighted_coverage),
+                               y = weighted_coverage)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Amount-Weighted Category Coverage",
+       x = "Category",
+       y = "Weighted Coverage") +
+  theme_minimal()
+```
+
+## Low Confidence Transactions
+```{r low_confidence}
+low_conf <- results %>%
+  filter(confidence < 0.3) %>%
+  select(narration, category, confidence, amount) %>%
+  arrange(confidence)
+
+datatable(low_conf, caption = "Transactions Requiring Review (Confidence < 0.3)")
+```
+
+## Recommendations
+```{r recommendations}
+unknown_count <- sum(results$category == "Unknown")
+low_conf_count <- sum(results$confidence < 0.3)
+```
+
+1. **Unknown Transactions**: `r unknown_count` transactions remain unclassified
+2. **Low Confidence**: `r low_conf_count` transactions have confidence < 0.3
+3. **Action Items**:
+   - Review low-confidence classifications
+   - Add keywords for frequent unknown patterns
+   - Retrain model with validated data
+
+---
+
+*Report generated automatically by NER MLOps Pipeline*
