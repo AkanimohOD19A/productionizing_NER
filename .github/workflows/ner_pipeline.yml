@@ -8,11 +8,11 @@ on:
 
   # Run on push to main
   push:
-    branches: [ main ]
+    branches: [ master ]
 
   # Run on pull requests
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
   # Allow manual trigger
   workflow_dispatch:
