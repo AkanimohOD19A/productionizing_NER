@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+ENV/
+env/
+
+# R
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Data
+data/raw/*.csv
+data/processed/*.csv
+*.pkl
+*.h5
+*.joblib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Reports (keep templates, ignore generated)
+reports/*.html
+!reports/assessment_report.Rmd
+
+# Temporary files
+tmp/
+temp/
+*.tmp

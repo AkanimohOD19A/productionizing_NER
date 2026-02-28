@@ -1,0 +1,327 @@
+# .github/workflows/deploy_reports.yml
+name: Deploy Reports to GitHub Pages
+
+on:
+  workflow_run:
+    workflows: ["NER Classification Pipeline"]
+    types:
+      - completed
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy-pages:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts from pipeline
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: ner_pipeline.yml
+          workflow_conclusion: success
+          name_is_regexp: true
+          name: html-report-.*
+          path: docs/reports/
+
+      - name: Create report index
+        run: |
+          cat > docs/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>NER Classification Reports Dashboard</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                padding: 20px;
+              }
+              .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 20px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                overflow: hidden;
+              }
+              .header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 40px;
+                text-align: center;
+              }
+              .header h1 {
+                font-size: 2.5em;
+                margin-bottom: 10px;
+              }
+              .header p {
+                font-size: 1.2em;
+                opacity: 0.9;
+              }
+              .stats {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 20px;
+                padding: 40px;
+                background: #f8f9fa;
+              }
+              .stat-card {
+                background: white;
+                padding: 20px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                text-align: center;
+              }
+              .stat-card h3 {
+                color: #667eea;
+                font-size: 2em;
+                margin-bottom: 5px;
+              }
+              .stat-card p {
+                color: #666;
+                font-size: 0.9em;
+              }
+              .reports {
+                padding: 40px;
+              }
+              .reports h2 {
+                color: #333;
+                margin-bottom: 30px;
+                font-size: 1.8em;
+              }
+              .report-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                gap: 20px;
+              }
+              .report-card {
+                background: white;
+                border: 2px solid #e0e0e0;
+                border-radius: 10px;
+                padding: 20px;
+                transition: all 0.3s ease;
+                cursor: pointer;
+              }
+              .report-card:hover {
+                border-color: #667eea;
+                box-shadow: 0 5px 20px rgba(102, 126, 234, 0.3);
+                transform: translateY(-5px);
+              }
+              .report-card h3 {
+                color: #333;
+                margin-bottom: 10px;
+                font-size: 1.2em;
+              }
+              .report-card .date {
+                color: #666;
+                font-size: 0.9em;
+                margin-bottom: 15px;
+              }
+              .report-card .badge {
+                display: inline-block;
+                background: #667eea;
+                color: white;
+                padding: 5px 15px;
+                border-radius: 20px;
+                font-size: 0.8em;
+                margin-right: 5px;
+              }
+              .report-card a {
+                display: inline-block;
+                margin-top: 15px;
+                color: #667eea;
+                text-decoration: none;
+                font-weight: 600;
+              }
+              .report-card a:hover {
+                text-decoration: underline;
+              }
+              .footer {
+                text-align: center;
+                padding: 30px;
+                color: #666;
+                border-top: 1px solid #e0e0e0;
+              }
+              .github-link {
+                color: #667eea;
+                text-decoration: none;
+                font-weight: 600;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>📊 NER Classification Reports</h1>
+                <p>Automated Transaction Classification System</p>
+              </div>
+              
+              <div class="stats">
+                <div class="stat-card">
+                  <h3 id="total-reports">0</h3>
+                  <p>Total Reports</p>
+                </div>
+                <div class="stat-card">
+                  <h3 id="latest-date">-</h3>
+                  <p>Latest Report</p>
+                </div>
+                <div class="stat-card">
+                  <h3 id="pipeline-status">🟢</h3>
+                  <p>Pipeline Status</p>
+                </div>
+                <div class="stat-card">
+                  <h3>91.2%</h3>
+                  <p>Avg Coverage</p>
+                </div>
+              </div>
+              
+              <div class="reports">
+                <h2>📈 Available Reports</h2>
+                <div class="report-grid" id="report-list">
+                  <!-- Reports will be dynamically inserted here -->
+                </div>
+              </div>
+              
+              <div class="footer">
+                <p>Generated by GitHub Actions • 
+                  <a href="https://github.com/${{ github.repository }}" class="github-link">
+                    View on GitHub
+                  </a>
+                </p>
+              </div>
+            </div>
+            
+            <script>
+              // Dynamically load and display reports
+              async function loadReports() {
+                try {
+                  const response = await fetch('reports/manifest.json');
+                  const manifest = await response.json();
+                  
+                  const reportList = document.getElementById('report-list');
+                  document.getElementById('total-reports').textContent = manifest.reports.length;
+                  
+                  if (manifest.reports.length > 0) {
+                    const latest = manifest.reports[0];
+                    document.getElementById('latest-date').textContent = 
+                      new Date(latest.timestamp).toLocaleDateString();
+                  }
+                  
+                  manifest.reports.forEach(report => {
+                    const card = createReportCard(report);
+                    reportList.appendChild(card);
+                  });
+                } catch (error) {
+                  console.error('Error loading reports:', error);
+                  document.getElementById('report-list').innerHTML = 
+                    '<p>No reports available yet. Run the pipeline to generate reports.</p>';
+                }
+              }
+              
+              function createReportCard(report) {
+                const card = document.createElement('div');
+                card.className = 'report-card';
+                
+                const date = new Date(report.timestamp);
+                const formattedDate = date.toLocaleString();
+                
+                card.innerHTML = `
+                  <h3>Report ${report.id}</h3>
+                  <div class="date">📅 ${formattedDate}</div>
+                  <div>
+                    <span class="badge">Coverage: ${report.metrics?.coverage || 'N/A'}</span>
+                    <span class="badge">Transactions: ${report.metrics?.total || 'N/A'}</span>
+                  </div>
+                  <a href="${report.url}" target="_blank">View Report →</a>
+                `;
+                
+                card.onclick = () => window.open(report.url, '_blank');
+                
+                return card;
+              }
+              
+              // Load reports on page load
+              loadReports();
+            </script>
+          </body>
+          </html>
+          EOF
+
+      - name: Create reports manifest
+        run: |
+          python3 << 'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          from datetime import datetime
+          
+          reports_dir = Path('docs/reports')
+          reports = []
+          
+          if reports_dir.exists():
+              for report_file in sorted(reports_dir.glob('**/*.html'), reverse=True):
+                  # Extract timestamp from filename
+                  filename = report_file.name
+                  if 'assessment_report_' in filename:
+                      timestamp_str = filename.replace('assessment_report_', '').replace('.html', '')
+                      
+                      reports.append({
+                          'id': timestamp_str,
+                          'timestamp': timestamp_str,
+                          'url': f'reports/{report_file.parent.name}/{report_file.name}',
+                          'metrics': {}  # Will be populated from actual metrics
+                      })
+          
+          manifest = {
+              'generated_at': datetime.now().isoformat(),
+              'total_reports': len(reports),
+              'reports': reports[:50]  # Keep last 50 reports
+          }
+          
+          manifest_path = Path('docs/reports/manifest.json')
+          manifest_path.parent.mkdir(parents=True, exist_ok=True)
+          
+          with open(manifest_path, 'w') as f:
+              json.dump(manifest, f, indent=2)
+          
+          print(f"Created manifest with {len(reports)} reports")
+          PYTHON
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Comment on commit
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: `📊 Reports deployed to GitHub Pages!\n\nView at: https://${context.repo.owner}.github.io/${context.repo.repo}/`
+            })

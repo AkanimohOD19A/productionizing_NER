@@ -1,0 +1,390 @@
+# .github/workflows/ner_pipeline.yml
+name: NER Classification Pipeline
+
+on:
+  # Run on schedule (daily at 2 AM UTC)
+  schedule:
+    - cron: '0 2 * * *'
+
+  # Run on push to main
+  push:
+    branches: [ main ]
+
+  # Run on pull requests
+  pull_request:
+    branches: [ main ]
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      data_size:
+        description: 'Number of transactions to generate'
+        required: false
+        default: '1000'
+      run_training:
+        description: 'Run model training'
+        type: boolean
+        default: true
+
+env:
+  PYTHON_VERSION: '3.9'
+  R_VERSION: '4.3'
+  MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+
+jobs:
+  # Job 1: Generate synthetic transaction data
+  generate-data:
+    runs-on: ubuntu-latest
+    outputs:
+      data_file: ${{ steps.generate.outputs.data_file }}
+      timestamp: ${{ steps.generate.outputs.timestamp }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy pyyaml
+
+      - name: Generate synthetic transaction data
+        id: generate
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          DATA_SIZE=${{ github.event.inputs.data_size || '1000' }}
+          DATA_FILE="data/transactions_${TIMESTAMP}.csv"
+          
+          echo "Generating ${DATA_SIZE} transactions..."
+          python scripts/generate_sample_data.py --size ${DATA_SIZE} --output ${DATA_FILE}
+          
+          echo "data_file=${DATA_FILE}" >> $GITHUB_OUTPUT
+          echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+
+      - name: Upload data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: transaction-data-${{ steps.generate.outputs.timestamp }}
+          path: ${{ steps.generate.outputs.data_file }}
+          retention-days: 30
+
+  # Job 2: Run tests
+  test:
+    runs-on: ubuntu-latest
+    needs: generate-data
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --cov=src/python --cov-report=xml --cov-report=html
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            coverage.xml
+            htmlcov/
+
+  # Job 3: Train NER model
+  train-model:
+    runs-on: ubuntu-latest
+    needs: [generate-data, test]
+    if: github.event.inputs.run_training != 'false'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Download transaction data
+        uses: actions/download-artifact@v4
+        with:
+          name: transaction-data-${{ needs.generate-data.outputs.timestamp }}
+          path: data/
+
+      - name: Train NER classifier
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI || 'file:./mlruns' }}
+        run: |
+          DATA_FILE="${{ needs.generate-data.outputs.data_file }}"
+          echo "Training model on ${DATA_FILE}..."
+          python src/python/train_model.py ${DATA_FILE}
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-artifacts-${{ needs.generate-data.outputs.timestamp }}
+          path: |
+            models/ner_classifier.pkl
+            mlruns/
+            data/processed/
+          retention-days: 90
+
+      - name: Save metrics
+        run: |
+          if [ -f "data/processed/metrics.json" ]; then
+            cat data/processed/metrics.json
+            echo "METRICS_AVAILABLE=true" >> $GITHUB_ENV
+          fi
+
+      - name: Comment PR with metrics
+        if: github.event_name == 'pull_request' && env.METRICS_AVAILABLE == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const metrics = JSON.parse(fs.readFileSync('data/processed/metrics.json', 'utf8'));
+            
+            const comment = `## 🎯 Model Training Results
+            
+            | Metric | Value |
+            |--------|-------|
+            | Coverage | ${(metrics.coverage * 100).toFixed(2)}% |
+            | Avg Confidence | ${metrics.avg_confidence.toFixed(3)} |
+            | Discovered Categories | ${metrics.discovered_categories} |
+            | Review Required | ${metrics.review_required} |
+            
+            📊 Full report will be available in the artifacts.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  # Job 4: Generate R Markdown report
+  generate-report:
+    runs-on: ubuntu-latest
+    needs: [generate-data, train-model]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ env.R_VERSION }}
+
+      - name: Set up Pandoc
+        uses: r-lib/actions/setup-pandoc@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libxml2-dev \
+            libfontconfig1-dev \
+            libharfbuzz-dev \
+            libfribidi-dev \
+            libfreetype6-dev \
+            libpng-dev \
+            libtiff5-dev \
+            libjpeg-dev
+
+      - name: Install R dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::tidyverse
+            any::knitr
+            any::rmarkdown
+            any::DT
+            any::plotly
+            any::scales
+            any::jsonlite
+            any::yaml
+            any::kableExtra
+
+      - name: Download model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: model-artifacts-${{ needs.generate-data.outputs.timestamp }}
+          path: ./
+
+      - name: Generate R Markdown report
+        run: |
+          Rscript -e "
+          rmarkdown::render(
+            input = 'reports/assessment_report.Rmd',
+            output_file = 'assessment_report_${{ needs.generate-data.outputs.timestamp }}.html',
+            params = list(
+              results_path = 'data/processed/classified_transactions.csv',
+              metrics_path = 'data/processed/metrics.json',
+              run_id = '${{ needs.generate-data.outputs.timestamp }}'
+            )
+          )
+          "
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-report-${{ needs.generate-data.outputs.timestamp }}
+          path: reports/assessment_report_${{ needs.generate-data.outputs.timestamp }}.html
+          retention-days: 90
+
+      - name: Deploy report to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./reports
+          destination_dir: reports/${{ needs.generate-data.outputs.timestamp }}
+          keep_files: true
+
+      - name: Create report index
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cat > reports/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>NER Classification Reports</title>
+            <style>
+              body { font-family: Arial, sans-serif; max-width: 1200px; margin: 50px auto; padding: 20px; }
+              h1 { color: #333; }
+              .report-list { list-style: none; padding: 0; }
+              .report-list li { padding: 10px; border-bottom: 1px solid #eee; }
+              .report-list a { color: #0366d6; text-decoration: none; }
+              .report-list a:hover { text-decoration: underline; }
+              .timestamp { color: #666; font-size: 0.9em; }
+            </style>
+          </head>
+          <body>
+            <h1>📊 NER Classification Reports</h1>
+            <p>Automated reports generated by GitHub Actions</p>
+            <ul class="report-list">
+              <li>
+                <a href="reports/${{ needs.generate-data.outputs.timestamp }}/assessment_report_${{ needs.generate-data.outputs.timestamp }}.html">
+                  Latest Report - ${{ needs.generate-data.outputs.timestamp }}
+                </a>
+                <span class="timestamp">(Generated: $(date))</span>
+              </li>
+            </ul>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload index to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./reports
+          keep_files: true
+
+  # Job 5: Notify on completion
+  notify:
+    runs-on: ubuntu-latest
+    needs: [generate-data, train-model, generate-report]
+    if: always()
+
+    steps:
+      - name: Check job statuses
+        id: check
+        run: |
+          if [[ "${{ needs.train-model.result }}" == "success" ]] && [[ "${{ needs.generate-report.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=✅ Pipeline completed successfully!" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "message=❌ Pipeline failed. Check logs for details." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{
+              "text": "${{ steps.check.outputs.message }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*NER Pipeline Run*\n${{ steps.check.outputs.message }}\n\n*Timestamp:* ${{ needs.generate-data.outputs.timestamp }}\n*Workflow:* ${{ github.workflow }}\n*Commit:* ${{ github.sha }}"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Report"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }' \
+            $SLACK_WEBHOOK_URL
+
+      - name: Create GitHub Release (on schedule)
+        if: github.event_name == 'schedule' && steps.check.outputs.status == 'success'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: report-${{ needs.generate-data.outputs.timestamp }}
+          release_name: Classification Report ${{ needs.generate-data.outputs.timestamp }}
+          body: |
+            ## Automated NER Classification Report
+            
+            **Generated:** ${{ needs.generate-data.outputs.timestamp }}
+            **Data Size:** ${{ github.event.inputs.data_size || '1000' }} transactions
+            
+            ### Artifacts
+            - Model artifacts
+            - Classification results
+            - HTML report
+            
+            View the [full report](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/${{ needs.generate-data.outputs.timestamp }}/assessment_report_${{ needs.generate-data.outputs.timestamp }}.html)
+          draft: false
+          prerelease: false
