@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-02-28T02:48:15.753866",
+  "n_transactions": 1050,
+  "date_range": {
+    "start": "2026-01-30",
+    "end": "2026-02-28"
+  },
+  "category_distribution": {
+    "Groceries": 212,
+    "Restaurants": 168,
+    "Entertainment": 131,
+    "Transportation": 121,
+    "Shopping": 119,
+    "Healthcare": 90,
+    "Baby Items": 81,
+    "Utilities": 78,
+    "Unknown": 50
+  },
+  "amount_stats": {
+    "min": 11.3,
+    "max": 500.0,
+    "mean": 137.11176190476195,
+    "median": 101.495,
+    "total": 143967.35000000003
+  }
+}

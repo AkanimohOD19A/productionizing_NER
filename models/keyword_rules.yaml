@@ -1,0 +1,18 @@
+categories:
+  Baby Items:
+    keywords: [lotion, pampers, diapers, baby powder, wipes, formula]
+    weight: 1.0
+
+  Groceries:
+    keywords: [bread, milk, eggs, cheese, meat, vegetables]
+    weight: 1.0
+
+  Healthcare:
+    keywords: [medicine, pharmacy, doctor, clinic, hospital]
+    weight: 1.5
+
+  Transport:
+    keywords: [uber, bolt, taxi, fuel, gas, parking]
+    weight: 1.0
+
+unknown_threshold: 0.3 # Confidence Threshold for ML Classification

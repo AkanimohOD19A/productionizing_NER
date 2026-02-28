@@ -67,3 +67,7 @@ reports/*.html
 tmp/
 temp/
 *.tmp
+
+# JUNK README
+enhanced_README.md
+GITHUB_SECRETS.md

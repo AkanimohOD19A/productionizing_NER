@@ -250,8 +250,8 @@ def main():
     parser.add_argument(
         '--output', '-o',
         type=str,
-        default='data/sample_transactions.csv',
-        help='Output CSV file path (default: data/sample_transactions.csv)'
+        default='data/raw/sample_transactions.csv',
+        help='Output CSV file path (default: data/raw/ample_transactions.csv)'
     )
     parser.add_argument(
         '--seed',
