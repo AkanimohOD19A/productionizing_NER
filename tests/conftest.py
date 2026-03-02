@@ -63,11 +63,11 @@ categories:
   Healthcare:
     keywords: [pharmacy, doctor, hospital, medical]
     weight: 1.5
-
+    
   Groceries:
     keywords: [walmart, grocery, supermarket, food]
     weight: 1.0
-
+    
   Transportation:
     keywords: [uber, taxi, lyft, gas]
     weight: 1.0
