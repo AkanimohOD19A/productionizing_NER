@@ -1,18 +1,22 @@
 categories:
   Baby Items:
-    keywords: [lotion, pampers, diapers, baby powder, wipes, formula]
+    keywords: [pampers, diapers, baby powder, baby lotion, wipes, formula]
     weight: 1.0
+    aliases: [infant products, nursery]
 
   Groceries:
-    keywords: [bread, milk, eggs, cheese, meat, vegetables]
+    keywords: [walmart, grocery, kroger, safeway, albertsons, publix, whole foods, trader joes, costco, supermarket, bread, milk, eggs]  # ← ADD THESE
     weight: 1.0
+    aliases: [food shopping]
 
   Healthcare:
-    keywords: [medicine, pharmacy, doctor, clinic, hospital]
+    keywords: [doctor, pharmacy, cvs, walgreens, medicine, prescription]
     weight: 1.5
+    aliases: [medical]
 
-  Transport:
-    keywords: [uber, bolt, taxi, fuel, gas, parking]
+  Transportation:
+    keywords: [uber, lyft, taxi, fuel, gas, parking]
     weight: 1.0
+    aliases: [travel]
 
 unknown_threshold: 0.3 # Confidence Threshold for ML Classification
