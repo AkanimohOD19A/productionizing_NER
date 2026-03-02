@@ -280,9 +280,17 @@ jobs:
                   if 'assessment_report_' in filename:
                       timestamp_str = filename.replace('assessment_report_', '').replace('.html', '')
                       
+                      # Parse timestamp properly for JavaScript
+                      try:
+                          # Format: YYYYMMDD_HHMMSS
+                          dt = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                          iso_timestamp = dt.isoformat()  # ISO format for JavaScript
+                      except:
+                          iso_timestamp = datetime.now().isoformat()
+                      
                       reports.append({
                           'id': timestamp_str,
-                          'timestamp': timestamp_str,
+                          'timestamp': iso_timestamp, #timestamp_str,
                           'url': f'reports/{report_file.parent.name}/{report_file.name}',
                           'metrics': {}  # Will be populated from actual metrics
                       })

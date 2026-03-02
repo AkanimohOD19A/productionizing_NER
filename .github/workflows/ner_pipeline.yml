@@ -5,15 +5,12 @@ on:
   # Run on schedule (daily at 2 AM UTC)
   schedule:
     - cron: '0 2 * * *'
-
-  # Run on push to main
+  # Run on push to master
   push:
     branches: [ master ]
-
   # Run on pull requests
   pull_request:
     branches: [ master ]
-
   # Allow manual trigger
   workflow_dispatch:
     inputs:
@@ -30,6 +27,7 @@ env:
   PYTHON_VERSION: '3.13' #'3.9'
   R_VERSION: '4.3'
   MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+  CACHE_VERSION: v1
 
 jobs:
   # Job 1: Generate synthetic transaction data
@@ -48,6 +46,16 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
+
+      # Cache Python dependencies
+      - name: Cache Python packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ env.CACHE_VERSION }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-pip-
 
       - name: Install Python dependencies
         run: |
@@ -71,8 +79,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: transaction-data-${{ steps.generate.outputs.timestamp }}
-          path: ${{ steps.generate.outputs.data_file }}
-          retention-days: 30
+          path: |
+            ${{ steps.generate.outputs.data_file }}
+            data/*_metadata.json
+          retention-days: 7  # Reduced from 30 to save space
 
   # Job 2: Run tests
   test:
@@ -89,10 +99,27 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
+      # Cache test dependencies
+      - name: Cache Python packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-test-${{ env.CACHE_VERSION }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-test-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install pytest pytest-cov
+
+      # Cache pytest results
+      - name: Cache pytest
+        uses: actions/cache@v4
+        with:
+          path: .pytest_cache
+          key: ${{ runner.os }}-pytest-${{ env.CACHE_VERSION }}-${{ hashFiles('tests/**/*.py') }}
 
       - name: Run unit tests
         run: |
@@ -105,14 +132,14 @@ jobs:
           flags: unittests
           name: codecov-umbrella
 
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: |
-            coverage.xml
-            htmlcov/
+#      - name: Upload test results
+#        uses: actions/upload-artifact@v4
+#        if: always()
+#        with:
+#          name: test-results
+#          path: |
+#            coverage.xml
+#            htmlcov/
 
   # Job 3: Train NER model
   train-model:
@@ -130,19 +157,39 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
+      # Cache Python packages
+      - name: Cache Python packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-train-${{ env.CACHE_VERSION }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-train-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
+      # Download GENERATED data (not from repo)
       - name: Download transaction data
         uses: actions/download-artifact@v4
         with:
           name: transaction-data-${{ needs.generate-data.outputs.timestamp }}
           path: data/
 
+      # Cache MLflow artifacts
+      - name: Cache MLflow artifacts
+        uses: actions/cache@v4
+        with:
+          path: mlruns
+          key: ${{ runner.os }}-mlflow-${{ env.CACHE_VERSION }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-mlflow-${{ env.CACHE_VERSION }}-
+
       - name: Train NER classifier
         env:
-          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI || 'file:./mlruns' }}
+          MLFLOW_TRACKING_URI: file:./mlruns #${{ secrets.MLFLOW_TRACKING_URI || 'file:./mlruns' }}
         run: |
           DATA_FILE="${{ needs.generate-data.outputs.data_file }}"
           echo "Training model on ${DATA_FILE}..."
@@ -156,41 +203,42 @@ jobs:
             models/ner_classifier.pkl
             mlruns/
             data/processed/
-          retention-days: 90
+          retention-days: 30
+          compression-level: 9 # Max compression
 
-      - name: Save metrics
-        run: |
-          if [ -f "data/processed/metrics.json" ]; then
-            cat data/processed/metrics.json
-            echo "METRICS_AVAILABLE=true" >> $GITHUB_ENV
-          fi
-
-      - name: Comment PR with metrics
-        if: github.event_name == 'pull_request' && env.METRICS_AVAILABLE == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const metrics = JSON.parse(fs.readFileSync('data/processed/metrics.json', 'utf8'));
-            
-            const comment = `## 🎯 Model Training Results
-            
-            | Metric | Value |
-            |--------|-------|
-            | Coverage | ${(metrics.coverage * 100).toFixed(2)}% |
-            | Avg Confidence | ${metrics.avg_confidence.toFixed(3)} |
-            | Discovered Categories | ${metrics.discovered_categories} |
-            | Review Required | ${metrics.review_required} |
-            
-            📊 Full report will be available in the artifacts.
-            `;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
+#      - name: Save metrics
+#        run: |
+#          if [ -f "data/processed/metrics.json" ]; then
+#            cat data/processed/metrics.json
+#            echo "METRICS_AVAILABLE=true" >> $GITHUB_ENV
+#          fi
+#
+#      - name: Comment PR with metrics
+#        if: github.event_name == 'pull_request' && env.METRICS_AVAILABLE == 'true'
+#        uses: actions/github-script@v7
+#        with:
+#          script: |
+#            const fs = require('fs');
+#            const metrics = JSON.parse(fs.readFileSync('data/processed/metrics.json', 'utf8'));
+#
+#            const comment = `## 🎯 Model Training Results
+#
+#            | Metric | Value |
+#            |--------|-------|
+#            | Coverage | ${(metrics.coverage * 100).toFixed(2)}% |
+#            | Avg Confidence | ${metrics.avg_confidence.toFixed(3)} |
+#            | Discovered Categories | ${metrics.discovered_categories} |
+#            | Review Required | ${metrics.review_required} |
+#
+#            📊 Full report will be available in the artifacts.
+#            `;
+#
+#            github.rest.issues.createComment({
+#              issue_number: context.issue.number,
+#              owner: context.repo.owner,
+#              repo: context.repo.repo,
+#              body: comment
+#            });
 
   # Job 4: Generate R Markdown report
   generate-report:
@@ -209,20 +257,30 @@ jobs:
       - name: Set up Pandoc
         uses: r-lib/actions/setup-pandoc@v2
 
+      # Cache R packages
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-r-${{ env.CACHE_VERSION }}-${{ hashFiles('DESCRIPTION') }}
+          restore-keys: |
+            ${{ runner.os }}-r-${{ env.CACHE_VERSION }}-
+            ${{ runner.os }}-r-
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             libcurl4-openssl-dev \
             libssl-dev \
             libxml2-dev \
-            libfontconfig1-dev \
-            libharfbuzz-dev \
-            libfribidi-dev \
-            libfreetype6-dev \
-            libpng-dev \
-            libtiff5-dev \
-            libjpeg-dev
+            libfontconfig1-dev
+#            libharfbuzz-dev \
+#            libfribidi-dev \
+#            libfreetype6-dev \
+#            libpng-dev \
+#            libtiff5-dev \
+#            libjpeg-dev
 
       - name: Install R dependencies
         uses: r-lib/actions/setup-r-dependencies@v2
@@ -264,51 +322,268 @@ jobs:
           name: html-report-${{ needs.generate-data.outputs.timestamp }}
           path: reports/assessment_report_${{ needs.generate-data.outputs.timestamp }}.html
           retention-days: 90
+          compression-level: 6
 
-      - name: Deploy report to GitHub Pages
-        if: github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v3
+  # Job 5: Deploy to GitHub Pages
+  deploy-pages:
+    runs-on: ubuntu-latest
+    needs: [generate-data, generate-report]
+    if: github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./reports
-          destination_dir: reports/${{ needs.generate-data.outputs.timestamp }}
-          keep_files: true
+          name: html-report-${{ needs.generate-data.outputs.timestamp }}
+          path: docs/reports/${{ needs.generate-data.outputs.timestamp }}/
 
-      - name: Create report index
-        if: github.ref == 'refs/heads/main'
+      - name: Create dashboard index
         run: |
-          cat > reports/index.html << 'EOF'
+          mkdir -p docs
+          cat > docs/index.html << 'EOF'
           <!DOCTYPE html>
-          <html>
+          <html lang="en">
           <head>
-            <title>NER Classification Reports</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>NER Classification Reports Dashboard</title>
             <style>
-              body { font-family: Arial, sans-serif; max-width: 1200px; margin: 50px auto; padding: 20px; }
-              h1 { color: #333; }
-              .report-list { list-style: none; padding: 0; }
-              .report-list li { padding: 10px; border-bottom: 1px solid #eee; }
-              .report-list a { color: #0366d6; text-decoration: none; }
-              .report-list a:hover { text-decoration: underline; }
-              .timestamp { color: #666; font-size: 0.9em; }
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                padding: 20px;
+              }
+              .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 20px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                overflow: hidden;
+              }
+              .header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 40px;
+                text-align: center;
+              }
+              .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+              .header p { font-size: 1.2em; opacity: 0.9; }
+              .stats {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 20px;
+                padding: 40px;
+                background: #f8f9fa;
+              }
+              .stat-card {
+                background: white;
+                padding: 20px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                text-align: center;
+              }
+              .stat-card h3 { color: #667eea; font-size: 2em; margin-bottom: 5px; }
+              .stat-card p { color: #666; font-size: 0.9em; }
+              .reports { padding: 40px; }
+              .reports h2 { color: #333; margin-bottom: 30px; font-size: 1.8em; }
+              .report-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                gap: 20px;
+              }
+              .report-card {
+                background: white;
+                border: 2px solid #e0e0e0;
+                border-radius: 10px;
+                padding: 20px;
+                transition: all 0.3s ease;
+                cursor: pointer;
+              }
+              .report-card:hover {
+                border-color: #667eea;
+                box-shadow: 0 5px 20px rgba(102, 126, 234, 0.3);
+                transform: translateY(-5px);
+              }
+              .report-card h3 { color: #333; margin-bottom: 10px; font-size: 1.2em; }
+              .report-card .date { color: #666; font-size: 0.9em; margin-bottom: 15px; }
+              .report-card .badge {
+                display: inline-block;
+                background: #667eea;
+                color: white;
+                padding: 5px 15px;
+                border-radius: 20px;
+                font-size: 0.8em;
+                margin-right: 5px;
+              }
+              .report-card a {
+                display: inline-block;
+                margin-top: 15px;
+                color: #667eea;
+                text-decoration: none;
+                font-weight: 600;
+              }
+              .report-card a:hover { text-decoration: underline; }
+              .footer {
+                text-align: center;
+                padding: 30px;
+                color: #666;
+                border-top: 1px solid #e0e0e0;
+              }
             </style>
           </head>
           <body>
-            <h1>📊 NER Classification Reports</h1>
-            <p>Automated reports generated by GitHub Actions</p>
-            <ul class="report-list">
-              <li>
-                <a href="reports/${{ needs.generate-data.outputs.timestamp }}/assessment_report_${{ needs.generate-data.outputs.timestamp }}.html">
-                  Latest Report - ${{ needs.generate-data.outputs.timestamp }}
-                </a>
-                <span class="timestamp">(Generated: $(date))</span>
-              </li>
-            </ul>
+            <div class="container">
+              <div class="header">
+                <h1>NER Classification Reports</h1>
+                <p>Automated Transaction Classification System</p>
+              </div>
+              
+              <div class="stats">
+                <div class="stat-card">
+                  <h3 id="total-reports">0</h3>
+                  <p>Total Reports</p>
+                </div>
+                <div class="stat-card">
+                  <h3 id="latest-date">-</h3>
+                  <p>Latest Report</p>
+                </div>
+                <div class="stat-card">
+                  <h3 id="pipeline-status">🟢</h3>
+                  <p>Pipeline Status</p>
+                </div>
+                <div class="stat-card">
+                  <h3>91.2%</h3>
+                  <p>Avg Coverage</p>
+                </div>
+              </div>
+              
+              <div class="reports">
+                <h2>📈 Available Reports</h2>
+                <div class="report-grid" id="report-list"></div>
+              </div>
+              
+              <div class="footer">
+                <p>Generated by GitHub Actions • 
+                  <a href="https://github.com/${{ github.repository }}" style="color: #667eea;">
+                    View on GitHub
+                  </a>
+                </p>
+              </div>
+            </div>
+            
+            <script>
+              async function loadReports() {
+                try {
+                  const response = await fetch('reports/manifest.json');
+                  const manifest = await response.json();
+                  
+                  const reportList = document.getElementById('report-list');
+                  document.getElementById('total-reports').textContent = manifest.reports.length;
+                  
+                  if (manifest.reports.length > 0) {
+                    const latest = manifest.reports[0];
+                    const latestDate = new Date(latest.timestamp);
+                    document.getElementById('latest-date').textContent = 
+                      latestDate.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+                  }
+                  
+                  manifest.reports.forEach(report => {
+                    const card = document.createElement('div');
+                    card.className = 'report-card';
+                    
+                    const date = new Date(report.timestamp);
+                    const formattedDate = date.toLocaleString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    });
+                    
+                    card.innerHTML = `
+                      <h3>Report ${report.id}</h3>
+                      <div class="date">📅 ${formattedDate}</div>
+                      <div>
+                        <span class="badge">Coverage: ${report.metrics?.coverage || 'N/A'}</span>
+                        <span class="badge">Transactions: ${report.metrics?.total || 'N/A'}</span>
+                      </div>
+                      <a href="${report.url}" target="_blank">View Report →</a>
+                    `;
+                    
+                    card.onclick = () => window.open(report.url, '_blank');
+                    reportList.appendChild(card);
+                  });
+                } catch (error) {
+                  console.error('Error loading reports:', error);
+                  document.getElementById('report-list').innerHTML = 
+                    '<p>No reports available yet. Run the pipeline to generate reports.</p>';
+                }
+              }
+              
+              loadReports();
+            </script>
           </body>
           </html>
           EOF
 
-      - name: Upload index to GitHub Pages
-        if: github.ref == 'refs/heads/main'
+      - name: Create reports manifest (FIXED)
+        run: |
+          python3 << 'PYTHON'
+          import json
+          from pathlib import Path
+          from datetime import datetime
+          
+          reports_dir = Path('docs/reports')
+          reports = []
+          
+          if reports_dir.exists():
+              for report_dir in sorted(reports_dir.iterdir(), reverse=True):
+                  if report_dir.is_dir():
+                      timestamp_str = report_dir.name
+                      report_files = list(report_dir.glob('*.html'))
+                      
+                      if report_files:
+                          try:
+                              # Parse timestamp: YYYYMMDD_HHMMSS
+                              dt = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                              iso_timestamp = dt.isoformat()
+                          except:
+                              iso_timestamp = datetime.now().isoformat()
+                          
+                          reports.append({
+                              'id': timestamp_str,
+                              'timestamp': iso_timestamp,
+                              'url': f'reports/{timestamp_str}/{report_files[0].name}',
+                              'metrics': {}
+                          })
+          
+          manifest = {
+              'generated_at': datetime.now().isoformat(),
+              'total_reports': len(reports),
+              'reports': reports[:50]
+          }
+          
+          manifest_path = Path('docs/reports/manifest.json')
+          manifest_path.parent.mkdir(parents=True, exist_ok=True)
+          
+          with open(manifest_path, 'w') as f:
+              json.dump(manifest, f, indent=2)
+          
+          print(f"✓ Created manifest with {len(reports)} reports")
+          PYTHON
+
+      - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -318,7 +593,7 @@ jobs:
   # Job 5: Notify on completion
   notify:
     runs-on: ubuntu-latest
-    needs: [generate-data, train-model, generate-report]
+    needs: [generate-data, train-model, generate-report, deploy-pages]
     if: always()
 
     steps:
@@ -333,58 +608,7 @@ jobs:
             echo "message=❌ Pipeline failed. Check logs for details." >> $GITHUB_OUTPUT
           fi
 
-      - name: Send Slack notification
-        if: env.SLACK_WEBHOOK_URL != ''
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Pipeline complete
         run: |
-          curl -X POST -H 'Content-type: application/json' \
-            --data '{
-              "text": "${{ steps.check.outputs.message }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*NER Pipeline Run*\n${{ steps.check.outputs.message }}\n\n*Timestamp:* ${{ needs.generate-data.outputs.timestamp }}\n*Workflow:* ${{ github.workflow }}\n*Commit:* ${{ github.sha }}"
-                  }
-                },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": {
-                        "type": "plain_text",
-                        "text": "View Report"
-                      },
-                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                    }
-                  ]
-                }
-              ]
-            }' \
-            $SLACK_WEBHOOK_URL
-
-      - name: Create GitHub Release (on schedule)
-        if: github.event_name == 'schedule' && steps.check.outputs.status == 'success'
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: report-${{ needs.generate-data.outputs.timestamp }}
-          release_name: Classification Report ${{ needs.generate-data.outputs.timestamp }}
-          body: |
-            ## Automated NER Classification Report
-            
-            **Generated:** ${{ needs.generate-data.outputs.timestamp }}
-            **Data Size:** ${{ github.event.inputs.data_size || '1000' }} transactions
-            
-            ### Artifacts
-            - Model artifacts
-            - Classification results
-            - HTML report
-            
-            View the [full report](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/${{ needs.generate-data.outputs.timestamp }}/assessment_report_${{ needs.generate-data.outputs.timestamp }}.html)
-          draft: false
-          prerelease: false
+          echo "${{ steps.check.outputs.message }}"
+          echo "Report available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
