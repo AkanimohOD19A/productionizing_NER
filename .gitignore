@@ -35,8 +35,8 @@ mlruns/
 mlartifacts/
 
 # Data
-data/raw/*.csv
-data/processed/*.csv
+#data/raw/*.csv
+#data/processed/*.csv
 *.pkl
 *.h5
 *.joblib
