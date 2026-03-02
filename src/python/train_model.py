@@ -71,4 +71,4 @@ def train_and_log_model(data_path: str, experiment_name: str = "NER-Classificati
 
 
 if __name__ == "__main__":
-    train_and_log_model("data/sample_transactions.csv")
+    train_and_log_model("data/raw/sample_transactions.csv")

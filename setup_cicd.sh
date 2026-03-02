@@ -205,7 +205,7 @@ MLFLOW_TRACKING_URI=file:./mlruns
 MLFLOW_EXPERIMENT_NAME=NER-Classification
 
 # Data Configuration
-DATA_PATH=data/sample_transactions.csv
+DATA_PATH=data/raw/sample_transactions.csv
 MODEL_PATH=models/ner_classifier.pkl
 
 # Pipeline Configuration
@@ -333,7 +333,7 @@ echo ""
 echo "🎲 Generating sample data..."
 
 if [ -f "scripts/generate_sample_data.py" ]; then
-    python scripts/generate_sample_data.py --size 100 --output data/sample_transactions.csv
+    python scripts/generate_sample_data.py --size 100 --output data/raw/sample_transactions.csv
     print_success "Generated sample transaction data"
 else
     print_warning "Data generator script not found, skipping sample data generation"
@@ -469,7 +469,7 @@ Run pipeline locally:
 python scripts/generate_sample_data.py
 
 # Train model
-python src/python/train_model.py data/sample_transactions.csv
+python src/python/train_model.py data/raw/sample_transactions.csv
 
 # Generate report
 Rscript -e "source('src/R/generate_report.R'); generate_assessment_report()"
