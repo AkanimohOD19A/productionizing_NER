@@ -8,11 +8,11 @@
 
 > **An intelligent, self-improving transaction classification system that automatically generates data, trains models, and deploys beautiful reports — all without manual intervention.**
 
-🌐 **[View Live Reports](https://akanimohod19a.github.io/productionizing_NER/)**
+**[View Live Reports](https://akanimohod19a.github.io/productionizing_NER/)**
 
 ---
 
-## 🎯 What This Does
+## What This Does
 
 This project automatically:
 
@@ -28,15 +28,15 @@ This project automatically:
 
 ---
 
-## 📊 Live Demo
+## Live Demo
 
 Visit **[https://akanimohod19a.github.io/productionizing_NER/](https://akanimohod19a.github.io/productionizing_NER/)** to see:
 
-- 📈 Interactive classification dashboards
-- 📊 Category distribution charts  
-- 🎯 Confidence score analysis
-- 📝 Transactions needing review
-- 💡 Recommendations for improvement
+- Interactive classification dashboards
+- Category distribution charts  
+- Confidence score analysis
+- Transactions needing review
+- Recommendations for improvement
 
 ---
 
@@ -113,7 +113,7 @@ Total: ~5 minutes
 
 ---
 
-## 💡 Key Features
+## Key Features
 
 ### Hybrid Classification
 
@@ -160,7 +160,7 @@ High-value transactions get more influence:
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 ```
 productionizing_NER/
 ├── .github/workflows/
@@ -233,7 +233,7 @@ pytest tests/test_classifier.py::TestKeywordMatching -v
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Adjust Schedule
 
@@ -272,7 +272,7 @@ results %>%
 
 ---
 
-## 📈 Performance Metrics
+## Performance Metrics
 
 | Metric | Value | Target |
 |--------|-------|--------|
@@ -285,7 +285,7 @@ results %>%
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Pipeline Fails
 
@@ -314,7 +314,7 @@ The workflow above fixes this by using ISO timestamp format.
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create feature branch (`git checkout -b feature/amazing-feature`)
@@ -324,7 +324,7 @@ The workflow above fixes this by using ISO timestamp format.
 
 ---
 
-## 📝 License
+## License
 
 MIT License - See [LICENSE](LICENSE) file for details.
 
@@ -341,8 +341,8 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ## 📞 Contact
 
-**Author:** Your Name  
-**Email:** your.email@example.com  
+**Author:** Akan Daniel
+**Email:** danielamahtoday@gmail.com 
 **GitHub:** [@akanimohod19a](https://github.com/akanimohod19a)
 
 **Live Reports:** [https://akanimohod19a.github.io/productionizing_NER/](https://akanimohod19a.github.io/productionizing_NER/)
